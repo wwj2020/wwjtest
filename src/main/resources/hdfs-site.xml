@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<!--
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License. See accompanying LICENSE file.
+-->
+
+<!-- Put site-specific property overrides in this file. -->
+
+<configuration>
+<!-- 指定副本数 -->
+<property>
+ <name>dfs.replication</name>
+ <value>2</value>
+</property>
+
+<!--指定 hdfs 的 nameservice 为 bigdata，需要和 core-site.xml 中保持一致  namenode的组名-->
+<property>
+ <name>dfs.nameservices</name>
+ <value>bigdata</value>
+</property>
+
+<!-- bigdata 下面有两个 NameNode，指定组中的namenode的个数，分别别名 nn1，nn2 -->
+<property>
+ <name>dfs.ha.namenodes.bigdata</name>
+ <value>nn1,nn2</value>
+</property>
+
+<!-- nn1 的 RPC 通信地址  内部通信 -->
+<property>
+ <name>dfs.namenode.rpc-address.bigdata.nn1</name>
+ <value>bigdata-04:9000</value>
+</property>
+
+<!-- nn1 的 http 通信地址 web -->
+<property>
+ <name>dfs.namenode.http-address.bigdata.nn1</name>
+ <value>bigdata-04:50070</value>
+</property>
+
+<!-- nn2 的 RPC 通信地址 -->
+<property>
+ <name>dfs.namenode.rpc-address.bigdata.nn2</name>
+ <value>bigdata-05:9000</value>
+</property>
+
+<!-- nn2 的 http 通信地址 -->
+<property>
+ <name>dfs.namenode.http-address.bigdata.nn2</name>
+ <value>bigdata-05:50070</value>
+</property>
+
+<!-- 指定 NameNode 的 edits 元数据在 JournalNode 上的存放位置 qjm的通信协议qjournal://host:8485;host:8485/节点名 -->
+<property>
+ <name>dfs.namenode.shared.edits.dir</name>
+<value>qjournal://bigdata-01:8485;bigdata-02:8485;bigdata-03:8485/bigdata</value>
+</property>
+
+<!-- 指定 JournalNode 在本地磁盘存放数据的位置 -->
+<property>
+ <name>dfs.journalnode.edits.dir</name>
+ <value>/opt/hadoop-2.8.4/journaldata</value>
+</property>
+
+<!-- 开启 NameNode 失败自动切换 -->
+<property>
+ <name>dfs.ha.automatic-failover.enabled</name>
+ <value>true</value>
+</property>
+
+<!-- 配置失败自动切换实现方式  失败切换的实现类  -->
+<!-- 此处配置在安装的时候切记检查不要换行-->
+<property>
+ <name>dfs.client.failover.proxy.provider.bigdata</name>
+<value>org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider</value>
+</property>
+
+<!-- 配置隔离机制方法，多个机制用换行分割，即每个机制暂用一行 防止脑裂-->
+<property>
+ <name>dfs.ha.fencing.methods</name>
+ <value>
+ sshfence
+ shell(/bin/true)
+ </value>
+</property>
+
+<!-- 使用 sshfence 隔离机制时需要 ssh 免登陆私钥 -->
+<property>
+ <name>dfs.ha.fencing.ssh.private-key-files</name>
+ <value>/root/.ssh/id_rsa</value>
+</property>
+
+<!-- 配置 sshfence 隔离机制超时时间 -->
+<property>
+ <name>dfs.ha.fencing.ssh.connect-timeout</name>
+ <value>30000</value>
+</property>
+
+</configuration>

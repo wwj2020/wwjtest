@@ -1,0 +1,292 @@
+package com.jhbh.jobs;
+
+object OnlineTest3 {
+
+  def main(args: Array[String]): Unit = {
+
+    Logger.getLogger("org.apache.hadoop").setLevel(Level.OFF)
+    Logger.getLogger("org.apache.spark").setLevel(Level.OFF)
+    Logger.getLogger("org.spark-project").setLevel(Level.OFF)
+    val Array(topic, group) = Array("jsontesttt", "g1")
+
+    //指定表、列簇、列关系,b开头代表基本表，i开头代表索引表
+    val brelations: mutable.HashMap[String, String] = mutable.HashMap[String, String]()
+    val irelations: mutable.HashMap[String, String] = mutable.HashMap[String, String]()
+
+    brelations.put("atcompanycode",  "cf1")
+    irelations.put("atcompanycode", "atIndex")
+    brelations.put("atmancerttype","cf1")
+    irelations.put("atmancerttype", "atIndex")
+    brelations.put("atmancertcode", "cf1")
+    irelations.put("atmancertcode", "atIndex")
+    brelations.put("atmantime", "cf1")
+    irelations.put("atmantime", "atIndex")
+    brelations.put("atmanname", "cf1")
+    irelations.put("atmanname", "atIndex")
+    brelations.put("atmanphone", "cf1")
+    irelations.put("atmanphone", "atIndex")
+    brelations.put("atemployee", "cf1")
+    irelations.put("atemployee", "atIndex")
+    brelations.put("atdestcity", "cf1")
+    irelations.put("atdestcity", "atIndex")
+    brelations.put("atinterfacee", "cf1")
+    irelations.put("atinterfacee", "atIndex")
+    brelations.put("atmansex", "cf1")
+    brelations.put("atmanaddress", "cf1")
+    brelations.put("atdestname", "cf1")
+    brelations.put("atmark", "cf1")
+    brelations.put("atsuspicious", "cf1")
+    brelations.put("atrealname", "cf1")
+    brelations.put("atname", "cf1")
+    brelations.put("atdate", "cf1")
+    brelations.put("atspecial", "cf1")
+
+
+    brelations.put("atmanphoneaddress", "cf2")
+    brelations.put("ataddress", "cf2")
+    brelations.put("atlongitude", "cf2")
+    brelations.put("atlatitude", "cf2")
+    brelations.put("atdestphone", "cf2")
+    brelations.put("atdestination", "cf2")
+    brelations.put("atuser", "cf2")
+    brelations.put("atsendtime", "cf2")
+    brelations.put("atrecetime", "cf2")
+    brelations.put("atimgcert", "cf2")
+    brelations.put("atimgbill", "cf2")
+    brelations.put("imeicode", "cf2")
+    brelations.put("atdeletetime", "cf2")
+    brelations.put("atupdatetime", "cf2")
+    brelations.put("attype", "cf2")
+    brelations.put("atinputtype", "cf2")
+    brelations.put("atimg", "cf2")
+    brelations.put("atweight", "cf2")
+    //dv表及索引表
+    brelations.put("dvcompanycode", "cf1")
+    irelations.put("dvcompanycode", "dvIndex")
+    brelations.put("dvmancerttype", "cf1")
+    irelations.put("dvmancerttype", "dvIndex")
+    brelations.put("dvmancertcode", "cf1")
+    irelations.put("dvmancertcode", "dvIndex")
+    brelations.put("dvmantime", "cf1")
+    irelations.put("dvmantime", "dvIndex")
+    brelations.put("dvmanname", "cf1")
+    irelations.put("dvmanname", "dvIndex")
+    brelations.put("dvemployee", "cf1")
+    irelations.put("dvemployee", "dvIndex")
+    brelations.put("dvtype", "cf1")
+    irelations.put("dvtype", "dvIndex")
+    brelations.put("dvinterface", "cf1")
+    irelations.put("dvinterface", "dvIndex")
+    brelations.put("dvmansex", "cf1")
+    brelations.put("dvmanaddress", "cf1")
+    brelations.put("dvname", "cf1")
+    brelations.put("dvweight", "cf1")
+    brelations.put("dvspecial", "cf1")
+    brelations.put("dvrealname", "cf1")
+    brelations.put("dvmark", "cf1")
+    brelations.put("dvsuspicious", "cf1")
+    brelations.put("dvdate", "cf1")
+
+    brelations.put("dvmanphone", "cf2")
+    brelations.put("dvmanphoneaddress", "cf2")
+    brelations.put("dvaddress", "cf2")
+    brelations.put("dvlongitude", "cf2")
+    brelations.put("dvlatitude", "cf2")
+    brelations.put("dvoriginname", "cf2")
+    brelations.put("dvorigin", "cf2")
+    brelations.put("dvuser", "cf2")
+    brelations.put("dvsendtime", "cf2")
+    brelations.put("dvrecetime", "cf2")
+    brelations.put("dvimgcert", "cf2")
+    brelations.put("dvimg", "cf2")
+    brelations.put("dvimgbill", "cf2")
+    brelations.put("dvdeletetime", "cf2")
+    brelations.put("dvupdatetime", "cf2")
+    brelations.put("dvinputtype", "cf2")
+    brelations.put("dvoriginphone", "cf2")
+
+
+    val conf = new SparkConf()
+      .setAppName(this.getClass.getSimpleName)
+      .setMaster("local[*]") //集群中运行打包注释此句
+      .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")// 设置序列化方式， [rdd] [worker]
+      .set("spark.rdd.compress", "true") // 占用空间比较小
+      .set("spark.streaming.kafka.maxRatePerPartition", "1500") // 每个分区，每次拉取的最大数据条数
+      .set("spark.streaming.stopGracefullyOnShutdown", "true") // 程序优雅的关闭
+    val ssc = new StreamingContext(conf, Seconds(1))
+
+
+    //设置累加器和广播变量
+    val allcount: Accumulator[Int] = ssc.sparkContext.accumulator(0)
+    val crcount: Accumulator[Int] = ssc.sparkContext.accumulator(0)
+    val relations: Broadcast[mutable.HashMap[String, String] ]= ssc.sparkContext.broadcast(brelations)
+    val indexRelations: Broadcast[mutable.HashMap[String, String]] = ssc.sparkContext.broadcast(irelations)
+
+
+    val offsets: Map[TopicPartition, Long] = OffsetHandler.getMydbCurrentOffset
+
+    val message: InputDStream[ConsumerRecord[String, String]] =
+      if (offsets.size == 0) {
+        KafkaUtils.createDirectStream[String, String](ssc,
+          LocationStrategies.PreferConsistent, // 将拉去到的数据，均匀分散到每台Executor节点上
+          ConsumerStrategies.Subscribe[String, String](AppParams.topics, AppParams.kafkaParams)
+        )
+      } else {
+        KafkaUtils.createDirectStream[String, String](ssc,
+          LocationStrategies.PreferConsistent, // 将拉去到的数据，均匀分散到每台Executor节点上
+          ConsumerStrategies.Subscribe[String, String](AppParams.topics, AppParams.kafkaParams, offsets)
+        )
+      }
+
+    val startTime = System.currentTimeMillis()
+
+    message.foreachRDD(rdd => {
+      if (!rdd.isEmpty()) {
+        // --------------------------------- 获取当前批次偏移量--------------------------------------
+        val offsetRanges: Array[OffsetRange] = rdd.asInstanceOf[HasOffsetRanges].offsetRanges //rdd.partition = 3
+
+        //打印偏移量信息
+        for (or <- offsetRanges) {
+          println(or.toString())
+        }
+
+        rdd.foreachPartition(partition => {
+          //获取数据库链接
+          val connection: Connection = Hbaseutils.getConnection()
+
+          //基本表链接
+          val basicAtTable: Table = connection.getTable(TableName.valueOf("basic_acceptance"))
+          val basicDvTable: Table = connection.getTable(TableName.valueOf("basic_delivery"))
+          //索引表链接
+          val atIndex: Table = connection.getTable(TableName.valueOf("atIndex"))
+          val dvIndex: Table = connection.getTable(TableName.valueOf("dvIndex"))
+
+          partition.foreach(line => {
+            allcount.add(1)
+            try {
+              val jsonobj: JSONObject = JSON.parseObject(line.value())
+              val action: String = jsonobj.getString(("action"))
+              if (action.equalsIgnoreCase("create")) {
+                crcount.add(1)
+                val table: String = jsonobj.getString(("table"))
+                val dataObj: JSONObject = jsonobj.getJSONObject("data")
+                val random: String = Random.nextInt(5).toString
+
+                if (table.equals("acceptance")) {
+                  val atCreateTime: String = dataObj.getString("atcreatetime")
+                  val d = new Date(atCreateTime.toLong * 1000)
+                  val random = d.getMinutes()
+                  val atRowkey: String = atCreateTime.reverse + "_" + dataObj.getString("atbillcode")
+                  val atKeys: util.Iterator[String] = dataObj.keySet().iterator()
+                  val put = new Put(atRowkey.getBytes())
+                  var put1: Put = null
+
+                  while (atKeys.hasNext()) {
+                    val atKey: String = atKeys.next()
+                    val atValue: String = dataObj.getString(atKey)
+
+                    if (!atKey.equals("atbillcode") && !atKey.equals("atcode") && !atKey.equals("atcreatetime")) {
+                      put.addColumn(relations.value(atKey).getBytes(), atKey.getBytes(), atValue.getBytes())
+                      val indexRowkey: String = (atCreateTime.reverse + "_"
+                        + dataObj.getString("atcompanycode")
+                        + "_" + dataObj.getString("atmancerttype")
+                        + "_" + dataObj.getString("atcompanycode")
+                        + "_" + dataObj.getString("atmantime")
+                        + "_" + dataObj.getString("atmanname")
+                        + "_" + dataObj.getString("atmanphone")
+                        + "_" + dataObj.getString("atemployee")
+                        + "_" + dataObj.getString("atinterfacee")
+                        + "_" + dataObj.getString("atdestcity"))
+
+
+                      //写入索引表
+                      if (indexRelations.value.contains(atKey)) {
+                        put1 = new Put(indexRowkey.getBytes())
+                        put1.addColumn("cf1".getBytes, atKey.getBytes, atRowkey.getBytes)
+                      }
+                    }
+                  }
+                  basicAtTable.put(put)
+                  atIndex.put(put1)
+
+                } else if (table.equals("delivery")) {
+                  val dvCreateTime: String = dataObj.getString("dvcreatetime")
+                  val dvRowkey: String = dvCreateTime.reverse + "_" + dataObj.getString("dvbillcode")
+                  val dvKeys: util.Iterator[String] = dataObj.keySet().iterator()
+
+                  val put = new Put(dvRowkey.getBytes())
+                  var put1: Put = null
+                  while (dvKeys.hasNext()) {
+                    val dvKey: String = dvKeys.next()
+                    val dvValue: String = dataObj.getString(dvKey)
+                    //"dvbillcode"和"dvcode"不存入hbase的列中
+                    if (!dvKey.equals("dvbillcode") && !dvKey.equals("dvcode") && !dvKey.equals("dvcreatetime")) {
+                      put.addColumn(relations.value(dvKey).getBytes(), dvKey.getBytes(), dvValue.getBytes())
+
+                      val indexRowkey: String = (dvCreateTime.reverse + "_"
+                        + dataObj.getString("dvcompanycode")
+                        + "_" + dataObj.getString("dvmancerttype")
+                        + "_" + dataObj.getString("dvcompanycode")
+                        + "_" + dataObj.getString("dvmantime")
+                        + "_" + dataObj.getString("dvmanname")
+                        + "_" + dataObj.getString("dvemployee")
+                        + "_" + dataObj.getString("dvtype")
+                        + "_" + dataObj.getString("dvinterface ")
+                        )
+                      //写入索引表
+                      if (indexRelations.value.contains(dvKey)) {
+                        put1 = new Put(Bytes.toBytes(indexRowkey))
+                        put1.addColumn("cf1".getBytes, dvKey.getBytes, dvRowkey.getBytes)
+                      }
+                    }
+                  }
+                  basicDvTable.put(put)
+                  dvIndex.put(put1)
+
+                }
+              }else{
+                println("------------------------------------------------!!!!!!!!!!!非create数据!!!!!!!!!!!!!!!!----------------------------")
+                val str: String = "d://notcreate/" + System.currentTimeMillis() + ".json"
+                val notCreateFile = new PrintWriter(new File(str))
+                notCreateFile.println(line.value())
+                notCreateFile.close()
+              }
+            } catch {
+              case ex: JSONException => {
+                println("------------------------------------------------!!!!!!!!!!!本条数据错误!!!!!!!!!!!!!!----------------------------")
+                val str: String = "d://errs/" + System.currentTimeMillis() + ".json"
+                val errFile = new PrintWriter(new File(str))
+                errFile.println(line.value())
+                errFile.close()
+              }
+            }
+          })
+          basicAtTable.close()
+          basicDvTable.close()
+          atIndex.close()
+          dvIndex.close()
+
+          connection.close()
+
+        })
+        val endTime = System.currentTimeMillis()
+        println("---------------------------------------共" + crcount.value + "条create数据" + "-----------------------------")
+        println("---------------------------------------共" + allcount.value + "条数据" + "-----------------------------")
+        println("!!!!!!!!!!!!!!!!!!!!!用时" + (endTime - startTime) + "ms")
+
+        OffsetHandler.saveCurrentBatchOffset(offsetRanges)
+      }
+    })
+
+    ssc.start()
+    ssc.awaitTermination()
+  }
+
+  def transferIntoBytes(str: String): Array[Byte] = {
+    try {
+      str.getBytes()
+    } catch {
+      case _: Exception => null
+    }
+  }
+}

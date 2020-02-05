@@ -1,0 +1,390 @@
+package com.jhbh.jobs
+
+import java.io.{File, PrintWriter}
+
+import com.alibaba.fastjson.{JSON, JSONObject}
+import com.jhbh.util.Hbaseutils
+import org.apache.hadoop.hbase.TableName
+import org.apache.hadoop.hbase.client.{Connection, Put, Table}
+import org.apache.hadoop.hbase.util.Bytes
+import org.apache.kafka.common.serialization.StringDeserializer
+import org.apache.log4j.{Level, Logger}
+import org.apache.spark.streaming.kafka010.{ConsumerStrategies, KafkaUtils, LocationStrategies}
+import org.apache.spark.{Accumulator, SparkConf}
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+
+import scala.util.Random
+;
+
+object OnlineTest1 {
+
+  def main(args: Array[String]): Unit = {
+
+    Logger.getLogger("org.apache.hadoop").setLevel(Level.OFF)
+    Logger.getLogger("org.apache.spark").setLevel(Level.OFF)
+    Logger.getLogger("org.spark-project").setLevel(Level.OFF)
+    val Array(topic, group) = Array("jsontesttt", "g8888")
+
+    val conf = new SparkConf()
+      .setAppName(this.getClass.getSimpleName)
+      .setMaster("local[*]") //集群中运行打包注释此句
+
+      // 设置序列化方式， [rdd] [worker]
+      .set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+      // 占用空间比较小
+      .set("spark.rdd.compress", "true")
+
+      .set("spark.streaming.kafka.maxRatePerPartition", "1500") // 每个分区，每次拉取的最大数据条数
+      .set("spark.streaming.stopGracefullyOnShutdown", "true") // 程序优雅的关闭
+    val ssc = new StreamingContext(conf, Seconds(1))
+
+
+    //设置累加器和广播变量
+    val count: Accumulator[Int] = ssc.sparkContext.accumulator(0)
+
+    val kafkaParams = Map[String, Object](
+      //      "bootstrap.servers" -> "hdp01:9092,hdp02:9092",
+      //     "bootstrap.servers" -> "service-01:9092,service-02:9092,service-03:9092,service-05:9092,service-06:9092",
+      "bootstrap.servers" -> "bigdata-01:9092,bigdata-02:9092,bigdata-03:9092",
+      //      "bootstrap.servers" -> "service01:9092,service02:9092,service03:9092,service05:9092,service06:9092",
+      "key.deserializer" -> classOf[StringDeserializer],
+      "value.deserializer" -> classOf[StringDeserializer],
+      "group.id" -> group,
+      "auto.offset.reset" -> "earliest"
+    )
+
+    val message = KafkaUtils.createDirectStream(ssc, LocationStrategies.PreferConsistent, ConsumerStrategies.Subscribe[String, String](topic.split(",").toSet[String], kafkaParams))
+    val startTime = System.currentTimeMillis()
+    message.foreachRDD(rdd => {
+      if (!rdd.isEmpty()) {
+        // 过滤出充值通知日志
+        /*  val baseData: RDD[JSONObject] = rdd
+            // ConsumerRecord => JSONObject
+            .map(line => JSON.parseObject(line.value()))
+            .filter(obj => obj.getString("action").equalsIgnoreCase("create"))*/
+        rdd.foreachPartition(partition => {
+          //获取数据库链接
+          //              val connection = HBaseUtil.getConnection
+          val connection: Connection = Hbaseutils.getConnection()
+          //at基本表链接集合
+          val basicAtTable: Table = connection.getTable(TableName.valueOf("basic_acceptance"))
+          //获取at索引表连接
+          val index_atcompanycode: Table = connection.getTable(TableName.valueOf("index_atcompanycode"))
+          val index_atmancerttype: Table = connection.getTable(TableName.valueOf("index_atmancerttype"))
+          val index_atmancertcode: Table = connection.getTable(TableName.valueOf("index_atmancertcode"))
+          val index_atmantime: Table = connection.getTable(TableName.valueOf("index_atmantime"))
+          val index_atmanname: Table = connection.getTable(TableName.valueOf("index_atmanname"))
+          val index_atmanphone: Table = connection.getTable(TableName.valueOf("index_atmanphone"))
+          val index_atemployee: Table = connection.getTable(TableName.valueOf("index_atemployee"))
+          val index_atdestcity: Table = connection.getTable(TableName.valueOf("index_atdestcity"))
+          val index_atinterfacee: Table = connection.getTable(TableName.valueOf("index_atinterfacee"))
+          //获取dv基本表连接
+          val basicDvTable: Table = connection.getTable(TableName.valueOf("basic_delivery"))
+          //获取dv索引表连接
+          val index_dvcompanycode: Table = connection.getTable(TableName.valueOf("index_dvcompanycode"))
+          val index_dvmancerttype: Table = connection.getTable(TableName.valueOf("index_dvmancerttype"))
+          val index_dvmancertcode: Table = connection.getTable(TableName.valueOf("index_dvmancertcode"))
+          val index_dvmantime: Table = connection.getTable(TableName.valueOf("index_dvmantime"))
+          val index_dvmanname: Table = connection.getTable(TableName.valueOf("index_dvmanname"))
+          val index_dvemployee: Table = connection.getTable(TableName.valueOf("index_dvemployee"))
+          val index_dvtype: Table = connection.getTable(TableName.valueOf("index_dvtype"))
+          val index_dvinterface: Table = connection.getTable(TableName.valueOf("index_dvinterface"))
+          partition.foreach(line => {
+            count.add(1)
+            try {
+              val jsonobj: JSONObject = JSON.parseObject(line.value())
+              val action: String = jsonobj.getString(("action"))
+              if (action.equalsIgnoreCase("create")) {
+                val table: String = jsonobj.getString(("table"))
+                val random: String = Random.nextInt(100).toString
+                val dataObj: JSONObject = jsonobj.getJSONObject("data")
+                if (table.equals("acceptance")) {
+                  val atCreateTime: String = dataObj.getString("atcreatetime")
+                  val atRowkey: String = random + "_" + dataObj.getString("atbillcode") + "_" + atCreateTime
+
+                  val atcompanycode: Array[Byte] = transferIntoBytes(dataObj.getString("atcompanycode"))
+                  val atmancerttype: Array[Byte] = transferIntoBytes(dataObj.getString("atmancerttype"))
+                  val atmancertcode: Array[Byte] = transferIntoBytes(dataObj.getString("atmancertcode"))
+                  val atmantime: Array[Byte] = transferIntoBytes(dataObj.getString("atmantime"))
+                  val atmanname: Array[Byte] = transferIntoBytes(dataObj.getString("atmanname"))
+                  val atmanphone: Array[Byte] = transferIntoBytes(dataObj.getString("atmanphone"))
+                  val atemployee: Array[Byte] = transferIntoBytes(dataObj.getString("atemployee"))
+                  val atinterfacee: Array[Byte] = transferIntoBytes(dataObj.getString("atinterfacee"))
+                  val atdestcity: Array[Byte] = transferIntoBytes(dataObj.getString("atdestcity"))
+                  val atmansex: Array[Byte] = transferIntoBytes(dataObj.getString("atmansex"))
+                  val atmanaddress: Array[Byte] = transferIntoBytes(dataObj.getString("atmanaddress"))
+                  val atdestname: Array[Byte] = transferIntoBytes(dataObj.getString("atdestname"))
+                  val atmark: Array[Byte] = transferIntoBytes(dataObj.getString("atmark"))
+                  val atsuspicious: Array[Byte] = transferIntoBytes(dataObj.getString("atsuspicious"))
+                  val atrealname: Array[Byte] = transferIntoBytes(dataObj.getString("atrealname"))
+                  val atname: Array[Byte] = transferIntoBytes(dataObj.getString("atname"))
+                  val atdate: Array[Byte] = transferIntoBytes(dataObj.getString("atdate"))
+                  val atspecial: Array[Byte] = transferIntoBytes(dataObj.getString("atspecial"))
+                  val atmanphoneaddress: Array[Byte] = transferIntoBytes(dataObj.getString("atmanphoneaddress"))
+                  val ataddress: Array[Byte] = transferIntoBytes(dataObj.getString("ataddress"))
+                  val atlongitude: Array[Byte] = transferIntoBytes(dataObj.getString("atlongitude"))
+                  val atlatitude: Array[Byte] = transferIntoBytes(dataObj.getString("atlatitude"))
+                  val atdestphone: Array[Byte] = transferIntoBytes(dataObj.getString("atdestphone"))
+                  val atdestination: Array[Byte] = transferIntoBytes(dataObj.getString("atdestination"))
+                  val atuser: Array[Byte] = transferIntoBytes(dataObj.getString("atuser"))
+                  val atsendtime: Array[Byte] = transferIntoBytes(dataObj.getString("atsendtime"))
+                  val atrecetime: Array[Byte] = transferIntoBytes(dataObj.getString("atrecetime"))
+                  val atimgcert: Array[Byte] = transferIntoBytes(dataObj.getString("atimgcert"))
+                  val atimgbill: Array[Byte] = transferIntoBytes(dataObj.getString("atimgbill"))
+                  val imeicode: Array[Byte] = transferIntoBytes(dataObj.getString("imeicode"))
+                  val atdeletetime: Array[Byte] = transferIntoBytes(dataObj.getString("atdeletetime"))
+                  val atupdatetime: Array[Byte] = transferIntoBytes(dataObj.getString("atupdatetime"))
+                  val attype: Array[Byte] = transferIntoBytes(dataObj.getString("attype"))
+                  val atinputtype: Array[Byte] = transferIntoBytes(dataObj.getString("atinputtype"))
+                  val atimg: Array[Byte] = transferIntoBytes(dataObj.getString("atimg"))
+                  val atweight: Array[Byte] = transferIntoBytes(dataObj.getString("atweight"))
+
+                  //at基本表
+                  val put = new Put(atRowkey.getBytes())
+                  put.addColumn("cf1".getBytes, "atcompanycode".getBytes(), atcompanycode)
+                    .addColumn("cf1".getBytes, "atmancerttype".getBytes(), atmancerttype)
+                    .addColumn("cf1".getBytes, "atmancertcode".getBytes(), atmancertcode)
+                    .addColumn("cf1".getBytes, "atmantime".getBytes(), atmantime)
+                    .addColumn("cf1".getBytes, "atmanname".getBytes(), atmanname)
+                    .addColumn("cf1".getBytes, "atmanphone".getBytes(), atmanphone)
+                    .addColumn("cf1".getBytes, "atemployee".getBytes(), atemployee)
+                    .addColumn("cf1".getBytes, "atinterfacee".getBytes(), atinterfacee)
+                    .addColumn("cf1".getBytes, "atdestcity".getBytes(), atdestcity)
+                    //at基本表cf1其他列
+                    .addColumn("cf1".getBytes, "atmansex".getBytes(), atmansex)
+                    .addColumn("cf1".getBytes, "atmanaddress".getBytes(), atmanaddress)
+                    .addColumn("cf1".getBytes, "atdestname".getBytes(), atdestname)
+                    .addColumn("cf1".getBytes, "atmark".getBytes(), atmark)
+                    .addColumn("cf1".getBytes, "atsuspicious".getBytes(), atsuspicious)
+                    .addColumn("cf1".getBytes, "atrealname".getBytes(), atrealname)
+                    .addColumn("cf1".getBytes, "atname".getBytes(), atname)
+                    .addColumn("cf1".getBytes, "atdate".getBytes(), atdate)
+                    .addColumn("cf1".getBytes, "atspecial".getBytes(), atspecial)
+                    //at基本表cf2列
+                    .addColumn("cf2".getBytes, "atmanphoneaddress".getBytes(), atmanphoneaddress)
+                    .addColumn("cf2".getBytes, "ataddress".getBytes(), ataddress)
+                    .addColumn("cf2".getBytes, "atlongitude".getBytes(), atlongitude)
+                    .addColumn("cf2".getBytes, "atlatitude".getBytes(), atlatitude)
+                    .addColumn("cf2".getBytes, "atdestphone".getBytes(), atdestphone)
+                    .addColumn("cf2".getBytes, "atdestination".getBytes(), atdestination)
+                    .addColumn("cf2".getBytes, "atuser".getBytes(), atuser)
+                    .addColumn("cf2".getBytes, "atsendtime".getBytes(), atsendtime)
+                    .addColumn("cf2".getBytes, "atrecetime".getBytes(), atrecetime)
+                    .addColumn("cf2".getBytes, "atimgcert".getBytes(), atimgcert)
+                    .addColumn("cf2".getBytes, "atimgbill".getBytes(), atimgbill)
+                    .addColumn("cf2".getBytes, "imeicode".getBytes(), imeicode)
+                    .addColumn("cf2".getBytes, "atdeletetime".getBytes(), atdeletetime)
+                    .addColumn("cf2".getBytes, "atupdatetime".getBytes(), atupdatetime)
+                    .addColumn("cf2".getBytes, "attype".getBytes(), attype)
+                    .addColumn("cf2".getBytes, "atinputtype".getBytes(), atinputtype)
+                    .addColumn("cf2".getBytes, "atimg".getBytes(), atimg)
+                    .addColumn("cf2".getBytes, "atweight".getBytes(), atweight)
+                  basicAtTable.put(put)
+
+                  //at第一个索引表index_atcompanycode
+                  val put1 = new Put(Bytes.toBytes(random + "_" + atcompanycode + "_" + atCreateTime))
+                  put1.addColumn("cf1".getBytes(), "atcompanycode".getBytes(), atRowkey.getBytes())
+                  index_atcompanycode.put(put1)
+                  //atmancerttype
+                  val put2 = new Put(Bytes.toBytes(random + "_" + atmancerttype + "_" + atCreateTime))
+                  put2.addColumn("cf1".getBytes(), "atmancerttype".getBytes(), atRowkey.getBytes())
+                  index_atmancerttype.put(put2)
+                  //atmancertcode
+                  val put3 = new Put(Bytes.toBytes(random + "_" + atmancertcode + "_" + atCreateTime))
+                  put3.addColumn("cf1".getBytes(), "atmancertcode".getBytes(), atRowkey.getBytes())
+                  index_atmancertcode.put(put3)
+                  //atmantime
+                  val put4 = new Put(Bytes.toBytes(random + "_" + atmantime + "_" + atCreateTime))
+                  put4.addColumn("cf1".getBytes(), "atmantime".getBytes(), atRowkey.getBytes())
+                  index_atmantime.put(put4)
+                  //atmanname
+                  val put5 = new Put(Bytes.toBytes(random + "_" + atmanname + "_" + atCreateTime))
+                  put5.addColumn("cf1".getBytes(), "atmanname".getBytes(), atRowkey.getBytes())
+                  index_atmanname.put(put5)
+                  //atmanphone
+                  val put6 = new Put(Bytes.toBytes(random + "_" + atmanphone + "_" + atCreateTime))
+                  put6.addColumn("cf1".getBytes(), "atmanphone".getBytes(), atRowkey.getBytes())
+                  index_atmanphone.put(put6)
+                  //atemployee
+                  val put7 = new Put(Bytes.toBytes(random + "_" + atemployee + "_" + atCreateTime))
+                  put7.addColumn("cf1".getBytes(), "atemployee".getBytes(), atRowkey.getBytes())
+                  index_atemployee.put(put7)
+                  //atinterfacee
+                  val put8 = new Put(Bytes.toBytes(random + "_" + atinterfacee + "_" + atCreateTime))
+                  put8.addColumn("cf1".getBytes(), "atinterfacee".getBytes(), atRowkey.getBytes())
+                  index_atinterfacee.put(put8)
+                  //atdestcity
+                  val put9 = new Put(Bytes.toBytes(random + "_" + atdestcity + "_" + atCreateTime))
+                  put9.addColumn("cf1".getBytes(), "atdestcity".getBytes(), atRowkey.getBytes())
+                  index_atdestcity.put(put9)
+
+                } else if (table.equals("delivery")) {
+                  val dvCreateTime: String = dataObj.getString("dvcreatetime")
+                  val dvRowkey: String = random + "_" + dataObj.getString("dvbillcode") + "_" + dvCreateTime
+                  val dvcompanycode: Array[Byte] = transferIntoBytes(dataObj.getString("dvcompanycode"))
+                  val dvmancerttype: Array[Byte] = transferIntoBytes(dataObj.getString("dvmancerttype"))
+                  val dvmancertcode: Array[Byte] = transferIntoBytes(dataObj.getString("dvmancertcode"))
+                  val dvmanname: Array[Byte] = transferIntoBytes(dataObj.getString("dvmanname"))
+                  val dvmantime: Array[Byte] = transferIntoBytes(dataObj.getString("dvmantime"))
+                  val dvtype: Array[Byte] = transferIntoBytes(dataObj.getString("dvtype"))
+                  val dvemployee: Array[Byte] = transferIntoBytes(dataObj.getString("dvemployee"))
+                  val dvinterface: Array[Byte] = transferIntoBytes(dataObj.getString("dvinterface"))
+                  val dvmansex: Array[Byte] = transferIntoBytes(dataObj.getString("dvmansex"))
+                  val dvmanaddress: Array[Byte] = transferIntoBytes(dataObj.getString("dvmanaddress"))
+                  val dvname: Array[Byte] = transferIntoBytes(dataObj.getString("dvname"))
+                  val dvweight: Array[Byte] = transferIntoBytes(dataObj.getString("dvweight"))
+                  val dvspecial: Array[Byte] = transferIntoBytes(dataObj.getString("dvspecial"))
+                  val dvrealname: Array[Byte] = transferIntoBytes(dataObj.getString("dvrealname"))
+                  val dvmark: Array[Byte] = transferIntoBytes(dataObj.getString("dvmark"))
+                  val dvsuspicious: Array[Byte] = transferIntoBytes(dataObj.getString("dvsuspicious"))
+                  val dvdate: Array[Byte] = transferIntoBytes(dataObj.getString("dvdate"))
+                  val dvmanphone: Array[Byte] = transferIntoBytes(dataObj.getString("dvmanphone"))
+                  val dvmanphoneaddress: Array[Byte] = transferIntoBytes(dataObj.getString("dvmanphoneaddress"))
+                  val dvaddress: Array[Byte] = transferIntoBytes(dataObj.getString("dvaddress"))
+                  val dvlongitude: Array[Byte] = transferIntoBytes(dataObj.getString("dvlongitude"))
+                  val dvlatitude: Array[Byte] = transferIntoBytes(dataObj.getString("dvlatitude"))
+                  val dvoriginname: Array[Byte] = transferIntoBytes(dataObj.getString("dvoriginname"))
+                  val dvorigin: Array[Byte] = transferIntoBytes(dataObj.getString("dvorigin"))
+                  val dvuser: Array[Byte] = transferIntoBytes(dataObj.getString("dvuser"))
+                  val dvsendtime: Array[Byte] = transferIntoBytes(dataObj.getString("dvsendtime"))
+                  val dvrecetime: Array[Byte] = transferIntoBytes(dataObj.getString("dvrecetime"))
+                  val dvimgcert: Array[Byte] = transferIntoBytes(dataObj.getString("dvimgcert"))
+                  val dvimg: Array[Byte] = transferIntoBytes(dataObj.getString("dvimg"))
+                  val dvimgbill: Array[Byte] = transferIntoBytes(dataObj.getString("dvimgbill"))
+                  val dvdeletetime: Array[Byte] = transferIntoBytes(dataObj.getString("dvdeletetime"))
+                  val dvupdatetime: Array[Byte] = transferIntoBytes(dataObj.getString("dvupdatetime"))
+                  val dvinputtype: Array[Byte] = transferIntoBytes(dataObj.getString("dvinputtype"))
+                  val dvoriginphone: Array[Byte] = transferIntoBytes(dataObj.getString("dvoriginphone"))
+
+                  //dv基本表
+                  val put = new Put(dvRowkey.getBytes())
+                  //      println("要保存的数据："+ dvRowkey+","+"cf1"+","+"dvcompanycode"+","+dvcompanycode)
+                  put.addColumn("cf1".getBytes, "dvcompanycode".getBytes(), dvcompanycode)
+                    .addColumn("cf1".getBytes, "dvmancerttype".getBytes(), dvmancerttype)
+                    .addColumn("cf1".getBytes, "dvmancertcode".getBytes(), dvmancertcode)
+                    .addColumn("cf1".getBytes, "dvmantime".getBytes(), dvmantime)
+                    .addColumn("cf1".getBytes, "dvmanname".getBytes(), dvmanname)
+                    .addColumn("cf1".getBytes, "dvemployee".getBytes(), dvemployee)
+                    .addColumn("cf1".getBytes, "dvtype".getBytes(), dvtype)
+                    .addColumn("cf1".getBytes, "dvinterface".getBytes(), dvinterface)
+                    .addColumn("cf1".getBytes, "dvmansex".getBytes(), dvmansex)
+                    .addColumn("cf1".getBytes, "dvmanaddress".getBytes(), dvmanaddress)
+                    .addColumn("cf1".getBytes, "dvname".getBytes(), dvname)
+                    .addColumn("cf1".getBytes, "dvweight".getBytes(), dvweight)
+                    .addColumn("cf1".getBytes, "dvspecial".getBytes(), dvspecial)
+                    .addColumn("cf1".getBytes, "dvrealname".getBytes(), dvrealname)
+                    .addColumn("cf1".getBytes, "dvmark".getBytes(), dvmark)
+                    .addColumn("cf1".getBytes, "dvsuspicious".getBytes(), dvsuspicious)
+                    .addColumn("cf1".getBytes, "dvdate".getBytes(), dvdate)
+                    .addColumn("cf2".getBytes, "dvmanphone".getBytes(), dvmanphone)
+                    .addColumn("cf2".getBytes, "dvmanphoneaddress".getBytes(), dvmanphoneaddress)
+                    .addColumn("cf2".getBytes, "dvaddress".getBytes(), dvaddress)
+                    .addColumn("cf2".getBytes, "dvlongitude".getBytes(), dvlongitude)
+                    .addColumn("cf2".getBytes, "dvlatitude".getBytes(), dvlatitude)
+                    .addColumn("cf2".getBytes, "dvoriginname".getBytes(), dvoriginname)
+                    .addColumn("cf2".getBytes, "dvorigin".getBytes(), dvorigin)
+                    .addColumn("cf2".getBytes, "dvuser".getBytes(), dvuser)
+                    .addColumn("cf2".getBytes, "dvsendtime".getBytes(), dvsendtime)
+                    .addColumn("cf2".getBytes, "dvrecetime".getBytes(), dvrecetime)
+                    .addColumn("cf2".getBytes, "dvimgcert".getBytes(), dvimgcert)
+                    .addColumn("cf2".getBytes, "dvimg".getBytes(), dvimg)
+                    .addColumn("cf2".getBytes, "dvimgbill".getBytes(), dvimgbill)
+                    .addColumn("cf2".getBytes, "dvdeletetime".getBytes(), dvdeletetime)
+                    .addColumn("cf2".getBytes, "dvupdatetime".getBytes(), dvupdatetime)
+                    .addColumn("cf2".getBytes, "dvinputtype".getBytes(), dvinputtype)
+                    .addColumn("cf2".getBytes, "dvoriginphone".getBytes(), dvoriginphone)
+                  //数据存入dv表
+                  basicDvTable.put(put)
+
+                  //dv第一个索引表index_dvcompanycode
+                  val put1 = new Put(Bytes.toBytes(random + "_" + dvcompanycode + "_" + dvCreateTime))
+                  put1.addColumn("cf1".getBytes(), "dvcompanycode".getBytes(), dvRowkey.getBytes())
+                  index_dvcompanycode.put(put1)
+                  //dvmancerttype
+                  val put2 = new Put(Bytes.toBytes(random + "_" + dvmancerttype + "_" + dvCreateTime))
+                  put2.addColumn("cf1".getBytes(), "dvmancerttype".getBytes(), dvRowkey.getBytes())
+                  index_dvmancerttype.put(put2)
+                  //dvmancertcode
+                  val put3 = new Put(Bytes.toBytes(random + "_" + dvmancertcode + "_" + dvCreateTime))
+                  put3.addColumn("cf1".getBytes(), "dvmancertcode".getBytes(), dvRowkey.getBytes())
+                  index_dvmancertcode.put(put3)
+                  //dvmantime
+                  val put4 = new Put(Bytes.toBytes(random + "_" + dvmantime + "_" + dvCreateTime))
+                  put4.addColumn("cf1".getBytes(), "dvmantime".getBytes(), dvRowkey.getBytes())
+                  index_dvmantime.put(put4)
+                  //dvmanname
+                  val put5 = new Put(Bytes.toBytes(random + "_" + dvmanname + "_" + dvCreateTime))
+                  put5.addColumn("cf1".getBytes(), "dvmanname".getBytes(), dvRowkey.getBytes())
+                  index_dvmanname.put(put5)
+                  //dvemployee
+                  val put6 = new Put(Bytes.toBytes(random + "_" + dvemployee + "_" + dvCreateTime))
+                  put6.addColumn("cf1".getBytes(), "dvemployee".getBytes(), dvRowkey.getBytes())
+                  index_dvemployee.put(put6)
+                  //dvtype
+                  val put7 = new Put(Bytes.toBytes(random + "_" + dvtype + "_" + dvCreateTime))
+                  put7.addColumn("cf1".getBytes(), "dvtype".getBytes(), dvRowkey.getBytes())
+                  index_dvtype.put(put7)
+                  //dvinterface
+                  val put8 = new Put(Bytes.toBytes(random + "_" + dvinterface + "_" + dvCreateTime))
+                  put8.addColumn("cf1".getBytes(), "dvinterface".getBytes(), dvRowkey.getBytes())
+                  index_dvinterface.put(put8)
+                }
+              }
+            } catch {
+              case _ => {
+                println("-------------------------------------!!!!!!!!!!!本条数据错误!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!----------------------------")
+                val str: String = "d://errs/" + System.currentTimeMillis() + ".json"
+                val errFile = new PrintWriter(new File(str))
+                errFile.println(line.value())
+                errFile.close()
+              }
+            }
+          })
+          //关闭at表和HBase连接
+          basicAtTable.close()
+          index_atcompanycode.close()
+          index_atmancerttype.close()
+          index_atmancertcode.close()
+          index_atmantime.close()
+          index_atmanname.close()
+          index_atmanphone.close()
+          index_atemployee.close()
+          index_atdestcity.close()
+          index_atinterfacee.close()
+          //关闭dv表和HBase连接
+          basicDvTable.close()
+          index_dvcompanycode.close()
+          index_dvmancerttype.close()
+          index_dvmancertcode.close()
+          index_dvmantime.close()
+          index_dvmanname.close()
+          index_dvemployee.close()
+          index_dvtype.close()
+          index_dvinterface.close()
+
+          connection.close()
+
+          //              HBaseUtil.release(connection)
+
+        })
+
+        val endTime = System.currentTimeMillis()
+        println("---------------------------------------共" + count.value + "条数据" + "-----------------------------")
+        println("!!!!!!!!!!!!!!!!!!!!!用时" + (endTime - startTime) + "ms")
+      }
+    })
+
+    ssc.start()
+    ssc.awaitTermination()
+
+
+  }
+
+  def transferIntoBytes(str: String): Array[Byte] = {
+    try {
+      str.getBytes()
+    } catch {
+      case _: Exception => null
+    }
+  }
+}

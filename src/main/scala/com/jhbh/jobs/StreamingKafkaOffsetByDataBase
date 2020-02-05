@@ -1,0 +1,130 @@
+/*
+package com.jhbh.jobs;
+
+import com.jhbh.util.AppParams
+import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.common.TopicPartition
+import org.apache.log4j.{Level, Logger}
+import org.apache.spark.SparkConf
+import org.apache.spark.streaming.dstream.InputDStream
+import org.apache.spark.streaming.kafka010._
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+/*
+  * SparkStreaming 整合kafka
+  * 直联方式整合  direct kafka
+  * 通过MySql数据库自己管理偏移量
+  */
+
+object StreamingKafkaOffsetByDataBase {
+
+  def main(args: Array[String]): Unit = {
+
+    // 屏蔽日志，以org开始的包名
+    Logger.getLogger("org").setLevel(Level.WARN)
+
+    //一：创建SSC对象
+    //1、创建配置参数
+    val conf = new SparkConf()
+      .setMaster("local[*]")
+      .setAppName(this.getClass.getSimpleName)
+      //Spark Streaming程序使用的参数
+      .set("spark.streaming.kafka.maxRatePerPartition", "5") // 每个分区，每次拉取的最大数据条数
+      .set("spark.streaming.stopGracefullyOnShutdown", "true") // 程序优雅的关闭
+
+    //2、创建ssc实例
+    //一个批次拉取的数据条数：3个分区 * 每个分区5条 * 2秒的间隔时间
+    val ssc = new StreamingContext(conf, Seconds(2)) //2秒拉取一次数据
+
+    //二：从kafka中拉取数据
+
+    //2、封装kafka的连接相关参数  是给consumer用的
+
+    /* 如何告诉程序从我们自己维护的偏移量位置开始拉去数据？
+      * 如果程序是第一次启动，则不需要指定偏移量，直接从最早的位置开始消费即可
+      * 如果程序非第一启动，则需要指定我们自己维护的偏移量，从指定的位置开始消费数据
+      * 如何判断程序是第一次启动？当数据库中没有数据的时候，我们就认为程序是第一次启动
+      */
+    //3、从数据库获取偏移量信息
+    val offsets: Map[TopicPartition, Long] = OffsetHandler.getMydbCurrentOffset
+
+    //4、拉取kafka数据
+    val stream: InputDStream[ConsumerRecord[String, String]] =
+      if (offsets.size == 0) {
+        KafkaUtils.createDirectStream[String, String](ssc,
+          LocationStrategies.PreferConsistent, // 将拉去到的数据，均匀分散到每台Executor节点上
+          ConsumerStrategies.Subscribe[String, String](Array("wordcount"), AppParams.kafkaParams)
+        )
+      } else {
+        KafkaUtils.createDirectStream[String, String](ssc,
+          LocationStrategies.PreferConsistent, // 将拉去到的数据，均匀分散到每台Executor节点上
+          ConsumerStrategies.Subscribe[String, String](Array("wordcount"), AppParams.kafkaParams, offsets)
+        )
+      }
+
+
+    //三、数据处理
+    stream.foreachRDD(rdd => {
+
+      // --------------------------------- 获取当前批次偏移量--------------------------------------
+      val offsetRanges: Array[OffsetRange] = rdd.asInstanceOf[HasOffsetRanges].offsetRanges //rdd.partition = 3
+
+      //打印偏移量信息
+      for (or <- offsetRanges) {
+        println(or.toString())
+      }
+
+      //-------------------------------- 业务计算逻辑 --------------------------------------
+
+      /*
+      //计算逻辑
+      val dataRDD: RDD[(String, Int)] = rdd.map(crd => (crd.value(), 1)).reduceByKey(_ + _)
+      //输出到控制台
+      dataRDD.foreach(println)
+      */
+      /*
+      //将结果输出到Redis
+      dataRDD.foreachPartition(iter => {
+        // 获取一个jedis连接
+        val jedis = Jpools.getJedis
+
+        iter.foreach(tp => {
+          jedis.hincrBy("wordcount", tp._1, tp._2)
+        })
+        jedis.close()
+      })
+      */
+
+      //--------------- 存储偏移量（将获取到的当前批次的偏移量存储到数据库）----------------------------
+      /**
+        * 我们自己管理偏移量该如何做呢？MySQL|Redis|。。。。。
+        * 1、存储的时候，数据肯定是在一张表中 -> 设计表
+        * 2、将数据(消费数据的偏移量信息)存储到表中
+        */
+      // ------------------------- MySQL 版存储偏移量 -------------------------------
+
+      OffsetHandler.saveCurrentBatchOffset(offsetRanges)
+
+      // ------------------------- Redis 版存储偏移量 -------------------------------
+
+      //获取jedis连接
+     /* val jedis = Jpools.getJedis
+
+      /** Redis存储偏移量数据了
+        * 1、如何设计存储数据结构呢？（topic, partition, groupId, untilOffset）前三个为复合主键
+        * K,V结构   Key = groupId:topic:partition   values = untilOffset
+        * 2、存储数据
+        */
+      for (or <- offsetRanges) {
+        jedis.set(groupId + ":" + or.topic + ":" + or.partition, or.untilOffset.toString)
+      }
+      jedis.close()
+      */
+    })
+
+    //最后必要步骤
+    ssc.start() //任务启动
+    ssc.awaitTermination() //主程序阻塞
+  }
+
+}
+*/
